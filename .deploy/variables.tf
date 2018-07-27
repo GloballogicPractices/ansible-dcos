@@ -27,7 +27,7 @@ variable "aws_profile" {
 
 variable "admin_cidr" {
   description = "Inbound Master Access"
-  default     = "0.0.0.0/0"
+  default     = "13.57.15.107/32"
 }
 
 variable "os" {

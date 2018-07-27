@@ -1,17 +1,17 @@
+&#x1F4D9; **Disclaimer: Community supported repository. Not supported by Mesosphere directly.**
 # Install Mesosphere DC/OS on AWS
 
 ## Prerequisites
 - [Terraform 0.11.x](https://www.terraform.io/downloads.html)
-- AWS SSH Keys 
-- AWS IAM Keys
+- [AWS SSH Keys](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html)
+- [AWS IAM Keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html)
 
 ## Getting Started
 
-1. Create directory
-2. Initialize Terraform
-3. Configure AWS SSH and IAM keys
-4. Configure settings
-5. Apply Terraform
+1. [Create installer directory](#create-installer-directory)
+2. [Initialize Terraform](#initialize-terraform)
+3. [Configure AWS keys](#configure-aws-ssh-keys)
+4. [Configure and deploy DC/OS](#configure-and-deploy-dcos)
 
 
 ## Create Installer Directory
@@ -23,10 +23,13 @@ mkdir dcos-installer
 cd dcos-installer
 ```
 
+## Initialize Terraform
+
 Run this command below to have Terraform initialized from this repository. There is **no git clone of this repo required** as Terraform performs this for you.
 
 ```
 terraform init -from-module github.com/dcos/terraform-dcos/aws
+cp desired_cluster_profile.tfvars.example desired_cluster_profile.tfvars
 ```
 
 ## Configure AWS SSH Keys
@@ -51,7 +54,7 @@ ssh-add ~/.ssh/path_to_you_key.pem
 
 **Note**: When using an SSH agent it is best to add the command above to your `~/.bash_profile`. Next time your terminal gets reopened, it will reload your keys automatically.
 
-## Configure IAM AWS Keys
+## Configure AWS IAM Keys
 
 You will need your AWS `aws_access_key_id` and `aws_secret_access_key`. If you don't have one yet, you can get them from the [AWS access keys documentation](
 http://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html). 
@@ -69,17 +72,7 @@ aws_secret_access_key = /R8SHF+SHFJaerSKE83awf4ASyrF83sa471DHSEXAMPLE
 
 **Note**: `[default]` is the name of the `aws_profile`. You may select a different profile to use in Terraform by adding it to your `desired_cluster_profile.tfvars` as `aws_profile = "<INSERT_CREDENTIAL_PROFILE_NAME_HERE>"`.
 
-## Deploy DC/OS
-
-### Deploying with Default Configuration
-
-We've provided sensible defaults if you would want to play around with Mesosphere DC/OS. The default variables are tracked in  [variables.tf](/aws/variables.tf). 
-
-Just run this command to deploy a multi-master setup in the cloud. **3 agents will be deployed** for you; 2 private agents, 1 public agent.
-
-```bash
-terraform apply 
-```
+## Configure And Deploy DC/OS
 
 ### Deploying with Custom Configuration
 
@@ -120,6 +113,14 @@ dcos_cluster_docker_credentials_enabled =  "true"
 dcos_cluster_docker_credentials_write_to_etc = "true"
 dcos_cluster_docker_credentials_dcos_owned = "false"
 dcos_cluster_docker_registry_url = "https://index.docker.io"
+dcos_use_proxy = "yes"
+dcos_http_proxy = "example.com"
+dcos_https_proxy = "example.com"
+dcos_no_proxy = <<EOF
+# YAML
+ - "internal.net"
+ - "169.254.169.254"
+EOF
 dcos_overlay_network = <<EOF
 # YAML
     vtep_subnet: 44.128.0.0/20
@@ -153,24 +154,29 @@ EOF
 
 ## Upgrading DC/OS  
 
-You can upgrade your DC/OS cluster with a single command. This Terraform script was built to perform installs and upgrades from the inception of this project. 
+You can upgrade your DC/OS cluster with a single command. This terraform script was built to perform installs and upgrades from the inception of this project. With the upgrade procedures below, you can also have finer control on how masters or agents upgrade at a given time. This will give you the ability to change the parallelism of master or agent upgrades.
 
-With the upgrade procedures below, you can also have finer control on how masters or agents upgrade at a given time. This will give you the ability to change the parallelism of master or agent upgrades.
+### DC/OS Upgrades
 
-###  Rolling Upgrade
+#### Rolling Upgrade
+###### Supported upgraded by dcos.io
 
-#### Masters Sequentially, Agents Parellel
+##### Prerequisite:
+Update your terraform scripts to gain access to the latest DC/OS version with this command below. Please make sure you meet the current upgrade version conditions here [https://docs.mesosphere.com/1.11/installing/oss/upgrading/#supported-upgrade-paths](https://docs.mesosphere.com/1.11/installing/oss/upgrading/#supported-upgrade-paths).
 
-Supported upgraded by dcos.io.
+```
+terraform get --update
+# change dcos_version = "<desired_version>" in desired_cluster_profile.tfvars
+```
 
+##### Masters Sequentially, Agents Parellel:
 ```bash
 terraform apply -var-file desired_cluster_profile.tfvars -var state=upgrade -target null_resource.bootstrap -target null_resource.master -parallelism=1
 terraform apply -var-file desired_cluster_profile.tfvars -var state=upgrade
 ```
 
-#### All Roles Simultaniously
-
-Not supported by dcos.io but it works without dcos_skip_checks enabled.
+##### All Roles Simultaniously
+###### Not supported by dcos.io but it works without dcos_skip_checks enabled.
 
 ```bash
 terraform apply -var-file desired_cluster_profile.tfvars -var state=upgrade
@@ -178,27 +184,23 @@ terraform apply -var-file desired_cluster_profile.tfvars -var state=upgrade
 
 ## Maintenance
 
-If you would like to add more or remove agents from your cluster, you can do so by telling Terraform your desired state and it will make sure it gets you there. 
-
-For example, if I have 2 private agents and 1 public agent in my `-var-file` I can override that flag by specifying the `-var` flag. It has higher priority than the `-var-file`.
+If you would like to add more or remove (private) agents or public agents from your cluster, you can do so by telling terraform your desired state and it will make sure it gets you there.
 
 ### Adding Agents
 
 ```bash
-terraform apply \
--var-file desired_cluster_profile \
---var num_of_private_agents=5 \
---var num_of_public_agents=3
+# update num_of_private_agents = "5" in desired_cluster_profile.tfvars
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 ### Removing Agents
 
 ```bash
-terraform apply \
--var-file desired_cluster_profile \
---var num_of_private_agents=1 \
---var num_of_public_agents=1
+# update num_of_private_agents = "2" in desired_cluster_profile.tfvars
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
+
+**Important**: Always remember to save your desired state in your `desired_cluster_profile.tfvars`
 
 ## Redeploy an Existing Master
 
@@ -217,7 +219,7 @@ terraform taint aws_instance.master.0 # The number represents the agent in the l
 Redeploy master node:
 
 ```bash
-terraform apply -var-file desired_cluster_profile
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 ## Redeploy an Existing Agent
@@ -236,7 +238,7 @@ terraform taint aws_instance.agent.0 # The number represents the agent in the li
 Redeploy agent:
 
 ```bash
-terraform apply -var-file desired_cluster_profile
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 
@@ -251,7 +253,7 @@ terraform taint aws_instance.public-agent.0 # The number represents the agent in
 Redeploy agent:
 
 ```bash
-terraform apply -var-file desired_cluster_profile
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 ## Experimental
@@ -263,20 +265,21 @@ terraform apply -var-file desired_cluster_profile
 As of Mesos 1.0, which now supports GPU agents, you can experiment with them immediately by simply removing `.disabled` from `dcos-gpu-agents.tf.disabled`. Once you do that, you can simply perform `terraform apply` and the agents will be deployed and configure and automatically join your mesos cluster. The default of `num_of_gpu_agents` is `1`. You can also remove GPU agents by simply adding `.disabled` and it will exit as well.
 
 
-
 #### Add GPU Private Agents
 
 ```bash
 mv dcos-gpu-agents.tf.disabled dcos-gpu-agents.tf
 terraform get
-terraform apply -var-file desired_cluster_profile --var num_of_gpu_agents=3
+# add num_of_gpu_agents = "3" in desired_cluster_profile.tfvars
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 #### Remove GPU Private Agents
 
 ```bash
 mv dcos-gpu-agents.tf dcos-gpu-agents.tf.disabled
-terraform apply -var-file desired_cluster_profile
+# remove num_of_gpu_agents = "3" in desired_cluster_profile.tfvars
+terraform apply -var-file desired_cluster_profile.tfvars
 ```
 
 
@@ -285,7 +288,7 @@ terraform apply -var-file desired_cluster_profile
 You can shutdown/destroy all resources from your environment by running this command below:
 
 ```bash
-terraform destroy -var-file desired_cluster_profile
+terraform destroy -var-file desired_cluster_profile.tfvars
 ```
 
   ## Roadmap
@@ -299,5 +302,5 @@ terraform destroy -var-file desired_cluster_profile
   - [X] Support for Centos
   - [X] Secondary support for specific versions of Centos
   - [X] Support for RHEL
-  - [ ] Secondary support for specific versions of RHEL
+  - [X] Secondary support for specific versions of RHEL
   - [ ] Multi AZ Support
